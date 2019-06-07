@@ -124,7 +124,7 @@ impl Drop for Server {
 }
 
 fn main() {
-    flexi_logger::Logger::with_env_or_str("whatserver=warn")
+    flexi_logger::Logger::with_env_or_str("whatsong_server=warn")
         .start()
         .unwrap();
 
