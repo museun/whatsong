@@ -12,6 +12,12 @@ pub fn get_db_path() -> PathBuf {
     get_data_dir().join("videos.db")
 }
 
+pub fn get_config_path() -> PathBuf {
+    let dir = directories::ProjectDirs::from("com.github", "museun", "whatsong").unwrap();
+    std::fs::create_dir_all(dir.config_dir()).unwrap();
+    dir.config_dir().to_owned()
+}
+
 pub fn get_port_file() -> PathBuf {
     get_data_dir().join("port")
 }

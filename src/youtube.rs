@@ -128,7 +128,7 @@ impl Item {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Song {
     pub id: i64,
     pub vid: String,

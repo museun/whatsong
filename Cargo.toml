@@ -12,18 +12,31 @@ path = "src/bin/client.rs"
 name = "whatsong_server"
 path = "src/bin/server.rs"
 
+[[bin]]
+name = "whatsong_bot"
+path = "src/bin/bot.rs"
+
 [dependencies]
-serde = { version = "1.0.92", features = ["derive"] }
-serde_json = "1.0.39"
-attohttpc = { version = "0.4.1", features = ["json"] }
-tiny_http = "0.6.2"
 log = "0.4.6"
 flexi_logger = "0.13.2"
+
 ctrlc = "3.1.3"
 regex = "1.1.6"
 once_cell = "0.2.1"
-rusqlite = { version = "0.18.0", features = ["bundled"] }
+
+toml = { version = "0.5.1", features = ["preserve_order"] }
+
 directories = "2.0.1"
+twitchchat = "0.6.1"
+
+serde = { version = "1.0.92", features = ["derive"] }
+serde_json = "1.0.39"
+
+attohttpc = { version = "0.4.1", features = ["json"] }
+tiny_http = "0.6.2"
+
+rusqlite = { version = "0.18.0", features = ["bundled"] }
+chrono = "0.4.6"
 
 [patch.crates-io]
 tiny_http = { git = "https://github.com/museun/tiny-http" }

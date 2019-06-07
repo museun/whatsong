@@ -45,10 +45,11 @@ fn find_address() -> String {
 }
 
 fn post_youtube(response: Response, addr: &str) {
+    use chrono::prelude::*;
     attohttpc::post(format!("http://{}/youtube", addr))
         .json(&whatsong::Item {
             kind: whatsong::ItemKind::Youtube(response.url.to_string()),
-            ts: whatsong::timestamp() as i64,
+            ts: Utc::now().timestamp(),
             version: 1,
         })
         .unwrap_or_abort("serializing youtube item")
