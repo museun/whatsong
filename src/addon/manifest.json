@@ -1,0 +1,29 @@
+{
+    "manifest_version": 2,
+    "name": "whatsong",
+    "version": "1.0",
+    "description": "which song is that?",
+    "icons": {
+        "48": "icons/icon.svg",
+        "96": "icons/icon.svg"
+    },
+    "applications": {
+        "gecko": {
+            "id": "whatsong@museun.github.com",
+            "strict_min_version": "50.0"
+        }
+    },
+    "permissions": [
+        "tabs",
+        "nativeMessaging"
+    ],
+    "background": {
+        "scripts": [
+            "background.js"
+        ]
+    },
+    "browser_action": {
+        "browser_style": true,
+        "default_icon": "icons/icon.svg"
+    }
+}
