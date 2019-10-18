@@ -18,7 +18,6 @@ const set_active = id => {
 const log_url = (url, title) => {
     let ts = timestamp();
     console.log(ts, url, title);
-
     browser.runtime.sendNativeMessage("whatsong", {
         ts: ts,
         url: url,

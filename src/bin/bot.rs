@@ -123,7 +123,7 @@ impl twitchchat::Handler for CommandHandler {
 
                     let out = if delta > 0 {
                         format!(
-                            "current song: {} @ https://youtu.be/{}&t={}",
+                            "current song: {} @ https://youtu.be/{}?t={}",
                             song.title, song.vid, delta,
                         )
                     } else {
