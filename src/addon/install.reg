@@ -1,1 +1,0 @@
-REG ADD "HKEY_CURRENT_USER\SOFTWARE\Mozilla\NativeMessagingHosts\whatsong" /ve /d "C:\dev\rs\whatsong\src\addon\whatsong.json" /f

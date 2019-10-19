@@ -1,9 +1,0 @@
-{
-    "name": "whatsong",
-    "description": "logs youtube urls when enabled",
-    "path": "c:\\dev\\stream\\whatsong_client.exe",
-    "type": "stdio",
-    "allowed_extensions": [
-        "whatsong@museun.github.com"
-    ]
-}

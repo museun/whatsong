@@ -15,7 +15,8 @@
     },
     "permissions": [
         "tabs",
-        "nativeMessaging"
+        "webRequest",
+        "*://localhost/*"
     ],
     "background": {
         "scripts": [
