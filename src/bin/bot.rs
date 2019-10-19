@@ -1,14 +1,14 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use twitchchat::{commands::PrivMsg, sync_adapters, Client};
+use twitchchat::IntoChannel as _;
+use twitchchat::{commands::PrivMsg, Writer};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Configuration {
     pub nickname: String,
     pub channel: String,
-    pub commands: Command,
+    pub commands: CommandAliases,
 }
 
 impl Default for Configuration {
@@ -16,7 +16,7 @@ impl Default for Configuration {
         Configuration {
             nickname: "shaken_bot".to_string(),
             channel: "museun".to_string(),
-            commands: Command::default(),
+            commands: CommandAliases::default(),
         }
     }
 }
@@ -38,125 +38,6 @@ impl Configuration {
                 std::process::exit(1);
             })
             .unwrap_or_default()
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct Command {
-    pub previous: Vec<String>,
-    pub current: Vec<String>,
-    pub list: Vec<String>,
-}
-
-impl Default for Command {
-    fn default() -> Self {
-        Command {
-            previous: vec!["!previous".to_string()],
-            current: vec!["!current".to_string()],
-            list: vec!["!songlist".to_string()],
-        }
-    }
-}
-
-trait LogUnwrapAndQuit<T> {
-    fn unwrap_or_exit(self, msg: &str) -> T;
-}
-
-impl<T, E: std::fmt::Display> LogUnwrapAndQuit<T> for Result<T, E> {
-    fn unwrap_or_exit(self, msg: &str) -> T {
-        self.unwrap_or_else(|err| {
-            log::error!("error: {}. because: {}", msg, err);
-            std::process::exit(1);
-        })
-    }
-}
-
-struct CommandHandler {
-    active_channel: twitchchat::Channel,
-    router: CommandRouter,
-    writer: twitchchat::Writer,
-}
-
-impl twitchchat::Handler for CommandHandler {
-    fn on_priv_msg(&mut self, msg: Arc<PrivMsg>) {
-        if *msg.channel() != self.active_channel {
-            log::info!(
-                "only one active channel is allowed. and its not {}, but rather {}",
-                msg.channel(),
-                &self.active_channel
-            );
-            return;
-        }
-
-        use chrono::prelude::*;
-        let now = Utc::now();
-
-        use chrono::Duration as CDur;
-        use std::time::Duration as SDur;
-
-        if let Some(cmd) = msg.message().split_whitespace().next() {
-            let (style, song) = match self.router.parse(cmd) {
-                d @ Commands::Previous => (d, self.previous_song()),
-                d @ Commands::Current => (d, self.current_song()),
-                // d @ Commands::List => (d, self.song_list()),
-                // ignore the song list for now
-                Commands::Unknown | _ => return,
-            };
-
-            log::trace!("got a song: ({:?}) {:?}", style, song);
-
-            match (style, song) {
-                (Commands::Previous, Some(song)) => {
-                    let out = format!(
-                        "previous song: {} @ https://youtu.be/{}",
-                        song.title, song.vid,
-                    );
-                    let _ = self.writer.send(msg.channel(), out);
-                }
-
-                (Commands::Current, Some(song)) => {
-                    let start = Utc.timestamp(song.timestamp as i64, 0);
-                    let dur = CDur::from_std(SDur::from_secs(song.duration as u64)).unwrap();
-
-                    let time = dur - (now - start);
-                    let delta = (dur - time).num_seconds();
-
-                    let out = if delta > 0 {
-                        format!(
-                            "current song: {} @ https://youtu.be/{}?t={}",
-                            song.title, song.vid, delta,
-                        )
-                    } else {
-                        format!(
-                            "current song: {} @ https://youtu.be/{}",
-                            song.title, song.vid,
-                        )
-                    };
-                    let _ = self.writer.send(msg.channel(), out);
-                }
-
-                (..) => {
-                    let _ = self
-                        .writer
-                        .send(msg.channel(), "I don't think any song is currently playing");
-                }
-            }
-        }
-    }
-}
-
-impl CommandHandler {
-    fn current_song(&self) -> Option<whatsong::youtube::Song> {
-        http_get(ReqType::Current).map_err(|err| dbg!(err)).ok()
-    }
-
-    fn previous_song(&self) -> Option<whatsong::youtube::Song> {
-        http_get(ReqType::Previous).map_err(|err| dbg!(err)).ok()
-    }
-
-    #[allow(dead_code)]
-    fn song_list(&self) -> Option<whatsong::youtube::Song> {
-        http_get(ReqType::List).map_err(|err| dbg!(err)).ok()
     }
 }
 
@@ -191,39 +72,47 @@ where
         .map_err(whatsong::Error::HttpResponse)
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct CommandAliases {
+    pub previous: Vec<String>,
+    pub current: Vec<String>,
+    pub list: Vec<String>,
+}
+
+impl Default for CommandAliases {
+    fn default() -> Self {
+        Self {
+            previous: vec!["!previous".to_string()],
+            current: vec!["!current".to_string()],
+            list: vec!["!songlist".to_string()],
+        }
+    }
+}
+
+impl CommandAliases {
+    fn parse_user(&self, user: &str) -> Command {
+        if self.previous.iter().any(|s| s == user) {
+            return Command::Previous;
+        }
+        if self.current.iter().any(|s| s == user) {
+            return Command::Current;
+        }
+        if self.list.iter().any(|s| s == user) {
+            return Command::List;
+        }
+        Command::Unknown
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
-enum Commands {
+enum Command {
     Previous,
     Current,
     List,
     Unknown,
 }
 
-struct CommandRouter {
-    aliases: Command,
-}
-
-impl CommandRouter {
-    fn parse(&self, left: &str) -> Commands {
-        if self.aliases.previous.iter().any(|s| s == left) {
-            return Commands::Previous;
-        }
-        if self.aliases.current.iter().any(|s| s == left) {
-            return Commands::Current;
-        }
-        if self.aliases.list.iter().any(|s| s == left) {
-            return Commands::List;
-        }
-        Commands::Unknown
-    }
-}
-
-fn main() {
-    flexi_logger::Logger::with_env_or_str("whatsong_bot=trace")
-        .start()
-        .unwrap();
-
-    let path = whatsong::get_config_path().join("bot.toml");
+fn handle_args(path: &std::path::Path) {
     if let Some(cmd) = std::env::args().nth(1) {
         match cmd.as_str() {
             "config" => {
@@ -255,38 +144,94 @@ fn main() {
             _ => {}
         }
     }
+}
 
+fn current_song() -> Option<whatsong::youtube::Song> {
+    http_get(ReqType::Current).map_err(|err| dbg!(err)).ok()
+}
+
+fn previous_song() -> Option<whatsong::youtube::Song> {
+    http_get(ReqType::Previous).map_err(|err| dbg!(err)).ok()
+}
+
+#[allow(dead_code)]
+fn song_list() -> Option<whatsong::youtube::Song> {
+    http_get(ReqType::List).map_err(|err| dbg!(err)).ok()
+}
+
+fn handle_message(msg: PrivMsg, writer: &mut Writer, commands: &CommandAliases) {
+    use chrono::prelude::*;
+    let now = Utc::now();
+
+    if let Some(cmd) = msg.message().split_whitespace().next() {
+        let (style, song) = match commands.parse_user(cmd) {
+            d @ Command::Previous => (d, previous_song()),
+            d @ Command::Current => (d, current_song()),
+            // d @ Command::List => (d, song_list()),
+            // ignore the song list for now
+            Command::Unknown | _ => return,
+        };
+
+        log::trace!("got a song: ({:?}) {:?}", style, song);
+
+        match (style, song) {
+            (Command::Previous, Some(song)) => {
+                let out = format!(
+                    "previous song: {} @ https://youtu.be/{}",
+                    song.title, song.vid,
+                );
+                let _ = writer.send(msg.channel(), out);
+            }
+
+            (Command::Current, Some(song)) => {
+                let start = Utc.timestamp(song.timestamp as i64, 0);
+                let dur = chrono::Duration::from_std(std::time::Duration::from_secs(
+                    song.duration as u64,
+                ))
+                .unwrap();
+
+                let time = dur - (now - start);
+                let delta = (dur - time).num_seconds();
+
+                let out = if delta > 0 {
+                    format!(
+                        "current song: {} @ https://youtu.be/{}?t={}",
+                        song.title, song.vid, delta,
+                    )
+                } else {
+                    format!(
+                        "current song: {} @ https://youtu.be/{}",
+                        song.title, song.vid,
+                    )
+                };
+                let _ = writer.send(msg.channel(), out);
+            }
+
+            (..) => {
+                let _ = writer.send(msg.channel(), "I don't think any song is currently playing");
+            }
+        }
+    }
+}
+
+fn main() {
+    flexi_logger::Logger::with_env_or_str("whatsong_bot=trace")
+        .start()
+        .unwrap();
+
+    let path = whatsong::get_config_path().join("bot.toml");
+    handle_args(&path);
     let config = Configuration::load(path);
+
+    let active_channel: twitchchat::Channel =
+        config.channel.clone().into_channel().unwrap_or_else(|err| {
+            log::error!("invalid twitch channel: {}", err);
+            std::process::exit(1);
+        });
 
     let token = std::env::var("WHATSONG_TWITCH_PASSWORD").unwrap_or_else(|_| {
         log::error!("please set `WHATSONG_TWITCH_PASSWORD` to a valid twitch token");
         std::process::exit(1)
-    });
-
-    use std::net::TcpStream;
-
-    let (read, write) = match TcpStream::connect(twitchchat::TWITCH_IRC_ADDRESS) {
-        Ok(conn) => (conn.try_clone().unwrap(), conn),
-        Err(err) => {
-            log::error!(
-                "cannot connect to `{}` because: {}",
-                twitchchat::TWITCH_IRC_ADDRESS,
-                err
-            );
-            std::process::exit(1)
-        }
-    };
-
-    log::info!("connected to twitch");
-    let (read, write) = sync_adapters(read, write);
-    let mut client = Client::new(read, write);
-
-    let _ = client.handler(CommandHandler {
-        active_channel: config.channel.clone().into(),
-        router: CommandRouter {
-            aliases: config.commands.clone(),
-        },
-        writer: client.writer(),
     });
 
     let user_config = twitchchat::UserConfig::with_caps()
@@ -295,22 +240,43 @@ fn main() {
         .build()
         .unwrap();
 
-    log::info!("registering");
-    client
-        .register(user_config)
-        .unwrap_or_exit("cannot register with twitch. probably an invalid token");
-    log::info!("registered");
+    log::debug!("connecting to twitch");
+    let client = twitchchat::connect(&user_config).unwrap_or_else(|err| {
+        log::error!("cannot connect to twitch: {}", err);
+        std::process::exit(1);
+    });
+    log::info!("connected to twitch");
 
-    let _info = client.wait_for_ready();
+    let commands = config.commands;
 
-    log::info!("joining: {}", &config.channel);
-    client
-        .writer()
-        .join(config.channel.clone()) // hmm
-        .unwrap_or_exit(&format!("cannot join channel `{}`", &config.channel));
+    let mut writer = client.writer();
+    for event in client.filter::<PrivMsg>() {
+        match event {
+            twitchchat::Event::TwitchReady(local) => {
+                log::info!(
+                    "connected to twitch as: {} ({})",
+                    local.display_name.as_ref().unwrap_or_else(|| &local.name),
+                    local.user_id
+                );
+                let _ = writer.join(&config.channel);
+            }
+            twitchchat::Event::Message(twitchchat::Message::PrivMsg(msg)) => {
+                if *msg.channel() != active_channel {
+                    log::warn!(
+                        "only one active channel is allowed. and its not {}, but rather {}",
+                        msg.channel(),
+                        active_channel
+                    );
+                    continue;
+                }
+                handle_message(msg, &mut writer, &commands)
+            }
 
-    log::info!("starting run loop");
-    client
-        .run()
-        .unwrap_or_exit("ran into a problem while running the bot")
+            twitchchat::Event::Error(error) => {
+                log::error!("error from twitch: {}", error);
+                std::process::exit(1);
+            }
+            _ => {}
+        }
+    }
 }
