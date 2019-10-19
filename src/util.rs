@@ -9,8 +9,7 @@ pub fn timestamp() -> u64 {
 }
 
 pub fn get_db_path() -> PathBuf {
-    "videos.db".into()
-    //get_data_dir().join("videos.db")
+    get_data_dir().join("videos.db")
 }
 
 pub fn get_config_path() -> PathBuf {

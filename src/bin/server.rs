@@ -107,9 +107,9 @@ fn main() {
     //     std::process::exit(1);
     // };
 
-    // whatsong::database::get_connection()
-    //     .execute_batch(include_str!("../sql/schema.sql"))
-    //     .expect("create tables");
+    whatsong::database::get_connection()
+        .execute_batch(include_str!("../sql/schema.sql"))
+        .expect("create tables");
 
     let (tx, rx) = oneshot::channel();
 
