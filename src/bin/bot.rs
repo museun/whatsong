@@ -159,6 +159,19 @@ fn song_list() -> Option<whatsong::youtube::Song> {
     http_get(ReqType::List).map_err(|err| dbg!(err)).ok()
 }
 
+trait TryWrite {
+    fn try_write<D: std::fmt::Display>(&mut self, msg: &PrivMsg, data: D);
+}
+
+impl TryWrite for Writer {
+    fn try_write<D: std::fmt::Display>(&mut self, msg: &PrivMsg, data: D) {
+        if let Err(err) = self.send(msg.channel(), data) {
+            log::error!("cannot write to twitch: {}", err);
+            std::process::exit(1);
+        }
+    }
+}
+
 fn handle_message(msg: PrivMsg, writer: &mut Writer, commands: &CommandAliases) {
     use chrono::prelude::*;
     let now = Utc::now();
@@ -176,42 +189,49 @@ fn handle_message(msg: PrivMsg, writer: &mut Writer, commands: &CommandAliases) 
 
         match (style, song) {
             (Command::Previous, Some(song)) => {
-                let out = format!(
-                    "previous song: {} @ https://youtu.be/{}",
-                    song.title, song.vid,
+                writer.try_write(
+                    &msg,
+                    format!(
+                        "previous song: {} @ https://youtu.be/{}",
+                        song.title, song.vid,
+                    ),
                 );
-                let _ = writer.send(msg.channel(), out);
             }
 
             (Command::Current, Some(song)) => {
-                let start = Utc.timestamp(song.timestamp as i64, 0);
-                let dur = chrono::Duration::from_std(std::time::Duration::from_secs(
-                    song.duration as u64,
-                ))
-                .unwrap();
+                let delta = calculate_offset(song.timestamp, song.duration, now);
+                if delta == 0 {
+                    writer.try_write(
+                        &msg,
+                        format!(
+                            "current song: {} @ https://youtu.be/{}",
+                            song.title, song.vid,
+                        ),
+                    );
+                    return;
+                }
 
-                let time = dur - (now - start);
-                let delta = (dur - time).num_seconds();
-
-                let out = if delta > 0 {
+                writer.try_write(
+                    &msg,
                     format!(
                         "current song: {} @ https://youtu.be/{}?t={}",
                         song.title, song.vid, delta,
-                    )
-                } else {
-                    format!(
-                        "current song: {} @ https://youtu.be/{}",
-                        song.title, song.vid,
-                    )
-                };
-                let _ = writer.send(msg.channel(), out);
+                    ),
+                );
+                return;
             }
 
-            (..) => {
-                let _ = writer.send(msg.channel(), "I don't think any song is currently playing");
-            }
+            _ => writer.try_write(&msg, "I don't think any song is currently playing"),
         }
     }
+}
+
+fn calculate_offset(ts: i64, dur: i64, now: chrono::DateTime<chrono::Utc>) -> i64 {
+    use chrono::prelude::*;
+    let start = Utc.timestamp(ts, 0);
+    let dur = chrono::Duration::from_std(std::time::Duration::from_secs(dur as u64)).unwrap();
+    let time = dur - (now - start);
+    (dur - time).num_seconds()
 }
 
 fn main() {
