@@ -1,57 +1,34 @@
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
-    Io(std::io::Error),
-    Sql(rusqlite::Error),
-    Deserialize(serde_json::Error),
-    Serialize(serde_json::Error),
-    HttpResponse(attohttpc::Error),
-    HttpRequest(attohttpc::Error),
+    #[error("an i/o error: {0}")]
+    Io(#[from] std::io::Error),
 
-    BindHttp(String),
+    #[error("an sql error: {0}")]
+    Sql(#[from] rusqlite::Error),
 
+    #[error("json deserialize error: {0}")]
+    Deserialize(#[source] serde_json::Error),
+
+    #[error("json serialize error: {0}")]
+    Serialize(#[source] serde_json::Error),
+
+    #[error("json serialize error: {0}")]
+    HttpResponse(#[source] attohttpc::Error),
+
+    #[error("json serialize error: {0}")]
+    HttpRequest(#[source] attohttpc::Error),
+
+    #[error("invalid youtube url: {0}")]
     InvalidYoutubeUrl(String),
+
+    #[error("invalid youtube data")]
     InvalidYoutubeData, // context?
-}
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::Io(err) => write!(f, "io error: {}", err),
-            Error::Sql(err) => write!(f, "sql error: {}", err),
-            Error::Deserialize(err) => write!(f, "deserialization error: {}", err),
-            Error::Serialize(err) => write!(f, "serialization error: {}", err),
-            Error::HttpResponse(err) => write!(f, "http get failed: {}", err),
-            Error::HttpRequest(err) => write!(f, "http get failed: {}", err),
+    #[error("invalid item version: expected: {expected}, got: {got}")]
+    InvalidVersion { expected: u32, got: u32 },
 
-            Error::BindHttp(addr) => write!(f, "cannot bind http server to {}", addr),
-
-            Error::InvalidYoutubeUrl(url) => write!(f, "invalid youtube url: {}", url),
-            Error::InvalidYoutubeData => write!(f, "missing snippet from youtube response"),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::Io(err) => Some(err),
-            Error::Sql(err) => Some(err),
-            Error::Deserialize(err) | Error::Serialize(err) => Some(err),
-            _ => None,
-        }
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Error::Io(err)
-    }
-}
-
-impl From<rusqlite::Error> for Error {
-    fn from(err: rusqlite::Error) -> Self {
-        Error::Sql(err)
-    }
+    #[error("invalid item listing: {kind}")]
+    InvalidListing { kind: String },
 }
