@@ -27,28 +27,3 @@ fn get_data_dir() -> PathBuf {
     std::fs::create_dir_all(dir.data_dir()).unwrap();
     dir.data_dir().to_owned()
 }
-
-pub trait UnwrapOrAbort<T> {
-    fn unwrap_or_abort(self, msg: &str) -> T;
-}
-
-impl<T, E> UnwrapOrAbort<T> for Result<T, E>
-where
-    E: std::fmt::Display,
-{
-    fn unwrap_or_abort(self, msg: &str) -> T {
-        self.unwrap_or_else(|err| {
-            let _ = std::fs::write("c:/dev/client.log", format!("error: {}, {}", msg, err));
-            std::process::exit(1)
-        })
-    }
-}
-
-impl<T> UnwrapOrAbort<T> for Option<T> {
-    fn unwrap_or_abort(self, msg: &str) -> T {
-        self.unwrap_or_else(|| {
-            let _ = std::fs::write("c:/dev/client.log", format!("error: {}", msg));
-            std::process::exit(1)
-        })
-    }
-}

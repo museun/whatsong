@@ -5,10 +5,6 @@ authors = ["museun <museun@outlook.com>"]
 edition = "2018"
 
 [[bin]]
-name = "whatsong_client"
-path = "src/bin/client.rs"
-
-[[bin]]
 name = "whatsong_server"
 path = "src/bin/server.rs"
 
@@ -39,4 +35,5 @@ rusqlite = { version = "0.20.0", features = ["bundled"] }
 chrono = "0.4.9"
 
 [patch.crates-io]
+# this adds Server::unblock() which should be present in 0.6.3
 tiny_http = { git = "https://github.com/museun/tiny-http" }
