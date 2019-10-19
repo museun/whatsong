@@ -18,9 +18,9 @@ pub fn get_config_path() -> PathBuf {
     dir.config_dir().to_owned()
 }
 
-pub fn get_port_file() -> PathBuf {
-    get_data_dir().join("port")
-}
+// pub fn get_port_file() -> PathBuf {
+//     get_data_dir().join("port")
+// }
 
 fn get_data_dir() -> PathBuf {
     let dir = directories::ProjectDirs::from("com.github", "museun", "whatsong").unwrap();

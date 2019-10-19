@@ -63,9 +63,13 @@ fn http_get<T>(req: ReqType) -> Result<T, whatsong::Error>
 where
     for<'de> T: Deserialize<'de>,
 {
-    let file = whatsong::get_port_file();
-    let addr = std::fs::read_to_string(&file).map_err(whatsong::Error::Io)?;
-    attohttpc::get(&format!("http://{}/{}", addr, req.as_ep()))
+    // let file = whatsong::get_port_file();
+    // let addr = std::fs::read_to_string(&file).map_err(whatsong::Error::Io)?;
+    let addr = "127.0.0.1:58810";
+    let url = format!("http://{}/{}", addr, req.as_ep());
+    log::trace!("getting: {}", url);
+
+    attohttpc::get(&url)
         .send()
         .map_err(whatsong::Error::HttpRequest)?
         .json()
@@ -235,7 +239,16 @@ fn calculate_offset(ts: i64, dur: i64, now: chrono::DateTime<chrono::Utc>) -> i6
 }
 
 fn main() {
-    flexi_logger::Logger::with_env_or_str("whatsong_bot=trace")
+    flexi_logger::Logger::with_env_or_str("whatsong_bot=debug")
+        .format(|write, now, record| {
+            write!(
+                write,
+                "[{}] [{}] {}",
+                now.now().format("%H:%M:%S%.6f"),
+                record.level(),
+                &record.args()
+            )
+        })
         .start()
         .unwrap();
 

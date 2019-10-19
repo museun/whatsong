@@ -29,6 +29,7 @@ where
 }
 
 fn current() -> Result<impl warp::Reply, warp::Rejection> {
+    log::trace!("getting the current song");
     whatsong::Youtube
         .current()
         .map(serialize_ok)
@@ -36,6 +37,7 @@ fn current() -> Result<impl warp::Reply, warp::Rejection> {
 }
 
 fn previous() -> Result<impl warp::Reply, warp::Rejection> {
+    log::trace!("getting the previous song");
     whatsong::Youtube
         .previous()
         .map(serialize_ok)
@@ -43,6 +45,7 @@ fn previous() -> Result<impl warp::Reply, warp::Rejection> {
 }
 
 fn try_list() -> Result<impl warp::Reply, warp::Rejection> {
+    log::trace!("getting all of the songs");
     whatsong::Youtube
         .all()
         .map(serialize_ok)
@@ -94,7 +97,16 @@ fn main() {
     // TODO make this configurable
     const ADDRESS: &str = "127.0.0.1:58810";
 
-    flexi_logger::Logger::with_env_or_str("whatsong_server=trace")
+    flexi_logger::Logger::with_env_or_str("whatsong_server=info")
+        .format(|write, now, record| {
+            write!(
+                write,
+                "[{}] [{}] {}",
+                now.now().format("%H:%M:%S%.6f"),
+                record.level(),
+                &record.args()
+            )
+        })
         .start()
         .unwrap();
 
@@ -120,9 +132,15 @@ fn main() {
             .and_then(insert)
             .recover(map_err);
 
-        let current = warp::path("current").and_then(current).recover(map_err);
+        let current = warp::path("current")
+            .and_then(current)
+            .recover(map_err)
+            .with(warp::log("end of current"));
 
-        let previous = warp::path("previous").and_then(previous).recover(map_err);
+        let previous = warp::path("previous")
+            .and_then(previous)
+            .recover(map_err)
+            .with(warp::log("end of previous"));
 
         let list = path!("list" / "youtube")
             .and(warp::path::end())
