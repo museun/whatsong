@@ -7,7 +7,7 @@ use whatsong::Storage as _;
 fn insert(item: whatsong::Item) -> Result<impl warp::Reply, warp::Rejection> {
     log::info!("got an item: {:?}", item);
     if item.version != 1 {
-        log::warn!("invalid version: {}. only '1' is suppported", item.version);
+        log::warn!("invalid version: {}. only '1' is supported", item.version);
         return Err(warp::reject::custom(Error::InvalidVersion {
             got: item.version,
             expected: 1,
@@ -162,9 +162,12 @@ fn main() {
         );
         log::info!("running on: {}", addr);
 
+        log::debug!("spawning server");
         warp::spawn(server);
         Ok(())
     }));
 
+    log::debug!("sending quit signal");
     let _ = tx.send(());
+    log::debug!("sent quit signal");
 }
