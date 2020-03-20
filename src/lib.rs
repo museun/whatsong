@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub const CURRENT_API_VERSION: u32 = 1;
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub struct Item {
@@ -14,14 +16,15 @@ pub enum ItemKind {
     Youtube(String),
 }
 
+#[async_trait::async_trait]
 pub trait Storage<T>
 where
     T: FromRow,
 {
-    fn insert(&self, item: &Item) -> Result<()>;
-    fn current(&self) -> Result<T>;
-    fn previous(&self) -> Result<T>;
-    fn all(&self) -> Result<Vec<T>>;
+    async fn insert(&self, item: Item) -> anyhow::Result<()>;
+    async fn current(&self) -> anyhow::Result<T>;
+    async fn previous(&self) -> anyhow::Result<T>;
+    async fn all(&self) -> anyhow::Result<Vec<T>>;
 }
 
 pub trait FromRow {
@@ -37,7 +40,13 @@ mod util;
 pub use util::*;
 
 mod error;
-pub use error::*;
+pub use error::{Error, Result};
+
+pub mod server;
 
 pub mod youtube;
 pub use youtube::Youtube;
+
+pub fn init_api_keys_from_env() -> anyhow::Result<()> {
+    youtube::initialize_api_key()
+}

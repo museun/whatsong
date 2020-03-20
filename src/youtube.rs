@@ -1,80 +1,111 @@
 use super::*;
 
-use once_cell::sync::Lazy;
+use anyhow::Context as _;
+use once_cell::sync::{Lazy, OnceCell};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 static PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(:?^(:?http?.*?youtu(:?\.be|be.com))(:?/|.*?v=))(?P<id>[A-Za-z0-9_-]{11})"#)
+    Regex::new(r#"(?-u)(:?^(:?http?.*?youtu(:?\.be|be.com))(:?/|.*?v=))(?P<id>[A-Za-z0-9_-]{11})"#)
         .expect("valid regex")
 });
 
-static API_KEY: Lazy<String> = Lazy::new(|| {
+static API_KEY: OnceCell<String> = OnceCell::new();
+
+pub(crate) fn initialize_api_key() -> anyhow::Result<()> {
     const YOUTUBE_API_KEY: &str = "YOUTUBE_API_KEY";
-    std::env::var(YOUTUBE_API_KEY)
-        .map_err(|_| {
-            log::error!("environment var `{}` must be set", YOUTUBE_API_KEY);
-            std::process::exit(1);
-        })
-        .unwrap()
-});
+
+    let key = std::env::var(YOUTUBE_API_KEY)
+        .with_context(|| format!("environment var `{}` must be set", YOUTUBE_API_KEY))?;
+
+    API_KEY
+        .set(key)
+        .map_err(|err| anyhow::anyhow!("existing value: {}", err))
+        .with_context(|| format!("`{}` was already set", YOUTUBE_API_KEY))
+}
 
 #[derive(Default)]
 pub struct Youtube;
 
-impl super::Storage<Song> for Youtube {
-    fn insert(&self, item: &super::Item) -> Result<()> {
-        let ItemKind::Youtube(url) = &item.kind;
+#[async_trait::async_trait]
+impl Storage<Song> for Youtube {
+    async fn insert(&self, item: super::Item) -> anyhow::Result<()> {
+        let ItemKind::Youtube(url) = item.kind;
+        let ts = item.ts;
 
-        let id = PATTERN
+        let id: String = PATTERN
             .captures(&url)
             .and_then(|s| s.name("id"))
-            .map(|s| s.as_str())
+            .map(|s| s.as_str().to_string())
             .ok_or_else(|| Error::InvalidYoutubeUrl(url.to_string()))?;
 
-        let info = Item::fetch(id)?;
+        let info = Item::fetch(&id).await?;
 
-        database::get_connection()
-            .execute_named(
-                include_str!("sql/youtube/add_video.sql"),
-                &[
-                    (":vid", &id),
-                    (":ts", &item.ts),
-                    (":duration", &info.duration),
-                    (":title", &info.title),
-                ],
-            )
-            .map_err(Error::Sql)
-            .map(|_| ())
+        tokio::task::spawn_blocking(move || {
+            database::get_global_connection().and_then(|conn| {
+                conn.execute_named(
+                    include_str!("sql/youtube/add_video.sql"),
+                    &[
+                        (":vid", &id),
+                        (":ts", &ts),
+                        (":duration", &info.duration),
+                        (":title", &info.title),
+                    ],
+                )
+                .map_err(|error| Error::Sql { error })
+                .map_err(Into::into)
+                .map(|_| ())
+            })
+        })
+        .await
+        .unwrap()
     }
 
-    fn current(&self) -> Result<Song> {
-        database::get_connection()
-            .query_row(
-                include_str!("sql/youtube/get_current.sql"),
-                rusqlite::NO_PARAMS,
-                Song::from_row,
-            )
-            .map_err(Error::Sql)
+    async fn current(&self) -> anyhow::Result<Song> {
+        tokio::task::spawn_blocking(move || {
+            database::get_global_connection().and_then(|conn| {
+                conn.query_row(
+                    include_str!("sql/youtube/get_current.sql"),
+                    rusqlite::NO_PARAMS,
+                    Song::from_row,
+                )
+                .map_err(|error| Error::Sql { error })
+                .map_err(Into::into)
+            })
+        })
+        .await
+        .unwrap()
     }
 
-    fn previous(&self) -> Result<Song> {
-        database::get_connection()
-            .query_row(
-                include_str!("sql/youtube/get_previous.sql"),
-                rusqlite::NO_PARAMS,
-                Song::from_row,
-            )
-            .map_err(Error::Sql)
+    async fn previous(&self) -> anyhow::Result<Song> {
+        tokio::task::spawn_blocking(move || {
+            database::get_global_connection().and_then(|conn| {
+                conn.query_row(
+                    include_str!("sql/youtube/get_previous.sql"),
+                    rusqlite::NO_PARAMS,
+                    Song::from_row,
+                )
+                .map_err(|error| Error::Sql { error })
+                .map_err(Into::into)
+            })
+        })
+        .await
+        .unwrap()
     }
 
-    fn all(&self) -> Result<Vec<Song>> {
-        Ok(database::get_connection()
-            .prepare(include_str!("sql/youtube/get_all.sql"))?
-            .query_map(rusqlite::NO_PARAMS, Song::from_row)
-            .map_err(Error::Sql)?
-            .flatten()
-            .collect::<Vec<_>>())
+    async fn all(&self) -> anyhow::Result<Vec<Song>> {
+        tokio::task::spawn_blocking(move || {
+            database::get_global_connection().and_then(|conn| {
+                Ok(conn
+                    .prepare(include_str!("sql/youtube/get_all.sql"))?
+                    .query_map(rusqlite::NO_PARAMS, Song::from_row)
+                    .map_err(|error| Error::Sql { error })?
+                    .flatten()
+                    .collect::<Vec<_>>())
+            })
+        })
+        .await
+        .unwrap()
     }
 }
 
@@ -84,18 +115,14 @@ pub struct Item {
 }
 
 impl Item {
-    pub fn fetch(id: &str) -> Result<Self> {
-        let req = attohttpc::get("https://www.googleapis.com/youtube/v3/videos").params(&[
-            ("id", id),
-            ("part", "snippet,contentDetails"),
-            (
-                "fields",
-                "items(id, snippet(title), contentDetails(duration))",
-            ),
-            ("key", API_KEY.as_str()),
-        ]);
-
-        let resp = req.send().map_err(Error::HttpRequest)?;
+    pub async fn fetch(id: &str) -> Result<Self> {
+        #[derive(Serialize)]
+        struct Query<'a> {
+            id: &'a str,
+            part: &'a str,
+            fields: &'a str,
+            key: &'a str,
+        }
 
         #[derive(Deserialize)]
         struct Response {
@@ -119,12 +146,29 @@ impl Item {
             duration: String,
         }
 
-        let data: Response = resp.json().map_err(Error::HttpResponse)?;
-        let item = data.items.get(0).ok_or_else(|| Error::InvalidYoutubeData)?;
-        Ok(Self {
-            title: item.snippet.title.to_string(),
-            duration: from_iso8601(&item.details.duration),
-        })
+        let resp: Response = reqwest::Client::new()
+            .get("https://www.googleapis.com/youtube/v3/videos")
+            .query(&Query {
+                part: "snippet,contentDetails",
+                fields: "items(id, snippet(title), contentDetails(duration))",
+                key: API_KEY.get().expect("api key must be set").as_str(),
+                id,
+            })
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        resp.items
+            .get(0)
+            // TODO context
+            .ok_or_else(|| Error::InvalidYoutubeData)
+            .map(|item| Self {
+                title: item.snippet.title.to_string(),
+                duration: from_iso8601(&item.details.duration),
+            })
+            .map_err(Into::into)
     }
 }
 
